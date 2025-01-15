@@ -4,21 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chess Game</title>
-    <link rel="stylesheet" href="./style.css">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
     <div class="game-container">
-        <div class="info-panel">
-            <div id="white-captured" class="captured-pieces"></div>
-            <div id="status" class="status">White's turn</div>
-            <div id="black-captured" class="captured-pieces"></div>
-        </div>
-        <div id="board" class="board"></div>
-        <div class="controls">
-            <button id="reset-btn">New Game</button>
-            <button id="undo-btn">Undo Move</button>
+        <div id="board" class="chess-board"></div>
+        <div class="game-info">
+            <div id="turn-display">White's Turn</div>
+            <button id="reset-button">New Game</button>
         </div>
     </div>
-    <script src="./chess.js"></script>
+    <script src="chess.js"></script>
 </body>
 </html>
