@@ -6,6 +6,12 @@ class ChessGame {
         this.selectedPiece = null;
         this.currentPlayer = 'white';
         this.validMoves = [];
+        this.gameOver = false;
+        this.moveHistory = []; // For tracking repetition
+        this.kings = {
+            white: { row: 7, col: 4 },
+            black: { row: 0, col: 4 }
+        };
         
         this.initializeBoard();
         this.setupEventListeners();
@@ -15,6 +21,14 @@ class ChessGame {
         // Clear the board
         this.board.innerHTML = '';
         this.gameBoard = this.createInitialBoard();
+        this.gameOver = false;
+        this.currentPlayer = 'white';
+        this.moveHistory = [];
+        this.kings = {
+            white: { row: 7, col: 4 },
+            black: { row: 0, col: 4 }
+        };
+        this.turnDisplay.textContent = "White's Turn";
         
         // Create squares and pieces
         for (let row = 0; row < 8; row++) {
@@ -58,9 +72,17 @@ class ChessGame {
     setupEventListeners() {
         this.board.addEventListener('click', (e) => this.handleSquareClick(e));
         this.resetButton.addEventListener('click', () => this.initializeBoard());
+        
+        // Add resign button
+        const resignButton = document.createElement('button');
+        resignButton.textContent = 'Resign';
+        resignButton.addEventListener('click', () => this.resign());
+        this.resetButton.parentNode.appendChild(resignButton);
     }
 
     handleSquareClick(e) {
+        if (this.gameOver) return;
+        
         const square = e.target.closest('.square');
         if (!square) return;
 
@@ -81,12 +103,137 @@ class ChessGame {
         else if (this.selectedPiece && this.isValidMove(row, col)) {
             this.movePiece(row, col);
             this.selectedPiece = null;
-            this.switchTurn();
+            
+            // Check game state after move
+            if (this.isCheckmate()) {
+                this.endGame(`Checkmate! ${this.currentPlayer === 'white' ? 'Black' : 'White'} wins!`);
+            } else if (this.isCheck()) {
+                this.turnDisplay.textContent = `Check! ${this.currentPlayer}'s Turn`;
+            } else if (this.isDrawByRepetition()) {
+                this.endGame("Draw by repetition!");
+            } else {
+                this.switchTurn();
+            }
         }
         // Deselect piece
         else {
             this.selectedPiece = null;
         }
+    }
+
+    isCheck() {
+        const kingPos = this.kings[this.currentPlayer];
+        const opponent = this.currentPlayer === 'white' ? 'black' : 'white';
+        
+        // Check all opponent pieces for attacks on king
+        for (let row = 0; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                const piece = this.gameBoard[row][col];
+                if (piece && piece[0] === opponent[0]) {
+                    const moves = this.calculateValidMoves(row, col, piece);
+                    if (moves.some(move => move.row === kingPos.row && move.col === kingPos.col)) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    isCheckmate() {
+        if (!this.isCheck()) return false;
+        
+        // Try all possible moves for all pieces
+        for (let row = 0; row < 8; row++) {
+            for (let col = 0; col < 8; col++) {
+                const piece = this.gameBoard[row][col];
+                if (piece && this.isPieceOwner(piece)) {
+                    const moves = this.calculateValidMoves(row, col, piece);
+                    // Try each move
+                    for (const move of moves) {
+                        // Make temporary move
+                        const savedBoard = JSON.parse(JSON.stringify(this.gameBoard));
+                        const savedKings = JSON.parse(JSON.stringify(this.kings));
+                        
+                        this.makeMove(row, col, move.row, move.col);
+                        
+                        // If not in check after move, it's not checkmate
+                        if (!this.isCheck()) {
+                            // Restore board
+                            this.gameBoard = savedBoard;
+                            this.kings = savedKings;
+                            return false;
+                        }
+                        
+                        // Restore board
+                        this.gameBoard = savedBoard;
+                        this.kings = savedKings;
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    isDrawByRepetition() {
+        const currentPosition = JSON.stringify(this.gameBoard);
+        const occurrences = this.moveHistory.filter(pos => pos === currentPosition).length;
+        return occurrences >= 3;
+    }
+
+    makeMove(fromRow, fromCol, toRow, toCol) {
+        const piece = this.gameBoard[fromRow][fromCol];
+        
+        // Update kings position if king is moved
+        if (piece[1] === 'K') {
+            this.kings[this.currentPlayer].row = toRow;
+            this.kings[this.currentPlayer].col = toCol;
+        }
+        
+        this.gameBoard[toRow][toCol] = piece;
+        this.gameBoard[fromRow][fromCol] = null;
+    }
+
+    movePiece(toRow, toCol) {
+        const { row: fromRow, col: fromCol } = this.selectedPiece;
+        
+        // Save position for repetition checking
+        this.moveHistory.push(JSON.stringify(this.gameBoard));
+        
+        // Update the board array
+        this.makeMove(fromRow, fromCol, toRow, toCol);
+        
+        // Update the DOM
+        const fromSquare = this.getSquare(fromRow, fromCol);
+        const toSquare = this.getSquare(toRow, toCol);
+        toSquare.innerHTML = fromSquare.innerHTML;
+        fromSquare.innerHTML = '';
+    }
+
+    resign() {
+        const winner = this.currentPlayer === 'white' ? 'Black' : 'White';
+        this.endGame(`${this.currentPlayer} resigns! ${winner} wins!`);
+    }
+
+    endGame(message) {
+        this.gameOver = true;
+        this.turnDisplay.textContent = message;
+        this.resetButton.style.display = 'block';
+    }
+
+    switchTurn() {
+        this.currentPlayer = this.currentPlayer === 'white' ? 'black' : 'white';
+        this.turnDisplay.textContent = `${this.currentPlayer.charAt(0).toUpperCase() + this.currentPlayer.slice(1)}'s Turn`;
+    }
+
+    clearHighlights() {
+        document.querySelectorAll('.square').forEach(square => {
+            square.classList.remove('selected', 'valid-move');
+        });
+    }
+
+    getSquare(row, col) {
+        return this.board.children[row * 8 + col];
     }
 
     isPieceOwner(piece) {
@@ -126,7 +273,19 @@ class ChessGame {
                 break;
         }
         
-        return moves;
+        // Filter moves that would put or leave king in check
+        return moves.filter(move => {
+            const savedBoard = JSON.parse(JSON.stringify(this.gameBoard));
+            const savedKings = JSON.parse(JSON.stringify(this.kings));
+            
+            this.makeMove(row, col, move.row, move.col);
+            const inCheck = this.isCheck();
+            
+            this.gameBoard = savedBoard;
+            this.kings = savedKings;
+            
+            return !inCheck;
+        });
     }
 
     calculatePawnMoves(row, col, moves) {
@@ -235,35 +394,6 @@ class ChessGame {
 
     isValidMove(row, col) {
         return this.validMoves.some(move => move.row === row && move.col === col);
-    }
-
-    movePiece(toRow, toCol) {
-        const { row: fromRow, col: fromCol } = this.selectedPiece;
-        
-        // Update the board array
-        this.gameBoard[toRow][toCol] = this.gameBoard[fromRow][fromCol];
-        this.gameBoard[fromRow][fromCol] = null;
-        
-        // Update the DOM
-        const fromSquare = this.getSquare(fromRow, fromCol);
-        const toSquare = this.getSquare(toRow, toCol);
-        toSquare.innerHTML = fromSquare.innerHTML;
-        fromSquare.innerHTML = '';
-    }
-
-    switchTurn() {
-        this.currentPlayer = this.currentPlayer === 'white' ? 'black' : 'white';
-        this.turnDisplay.textContent = `${this.currentPlayer.charAt(0).toUpperCase() + this.currentPlayer.slice(1)}'s Turn`;
-    }
-
-    clearHighlights() {
-        document.querySelectorAll('.square').forEach(square => {
-            square.classList.remove('selected', 'valid-move');
-        });
-    }
-
-    getSquare(row, col) {
-        return this.board.children[row * 8 + col];
     }
 }
 
