@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess Game</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="game-container">
+        <div class="info-panel">
+            <div id="white-captured" class="captured-pieces"></div>
+            <div id="status" class="status">White's turn</div>
+            <div id="black-captured" class="captured-pieces"></div>
+        </div>
+        <div id="board" class="board"></div>
+        <div class="controls">
+            <button id="reset-btn">New Game</button>
+            <button id="undo-btn">Undo Move</button>
+        </div>
+    </div>
+    <script src="chess.js"></script>
+</body>
+</html>
