@@ -105,7 +105,11 @@ class ChessGame {
     async handleSquareClick(e) {
         if (this.gameOver) return;
         
-        const square = e.target.closest('.square');
+        // Find the square element whether clicking on the square or the piece
+        const square = e.target.classList.contains('square') ? 
+            e.target : 
+            e.target.closest('.square');
+        
         if (!square) return;
 
         const row = parseInt(square.dataset.row);
