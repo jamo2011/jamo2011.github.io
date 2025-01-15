@@ -9,9 +9,20 @@ class ChessGame {
         this.gameOver = false;
         this.moveHistory = []; // For tracking repetition
         this.kings = {
-            white: { row: 7, col: 4 },
-            black: { row: 0, col: 4 }
+            white: { row: 7, col: 4, hasMoved: false },
+            black: { row: 0, col: 4, hasMoved: false }
         };
+        this.rooks = {
+            white: { 
+                kingside: { hasMoved: false },
+                queenside: { hasMoved: false }
+            },
+            black: {
+                kingside: { hasMoved: false }, 
+                queenside: { hasMoved: false }
+            }
+        };
+        this.lastPawnMove = null; // For en passant
         
         this.initializeBoard();
         this.setupEventListeners();
@@ -25,9 +36,20 @@ class ChessGame {
         this.currentPlayer = 'white';
         this.moveHistory = [];
         this.kings = {
-            white: { row: 7, col: 4 },
-            black: { row: 0, col: 4 }
+            white: { row: 7, col: 4, hasMoved: false },
+            black: { row: 0, col: 4, hasMoved: false }
         };
+        this.rooks = {
+            white: { 
+                kingside: { hasMoved: false },
+                queenside: { hasMoved: false }
+            },
+            black: {
+                kingside: { hasMoved: false },
+                queenside: { hasMoved: false }
+            }
+        };
+        this.lastPawnMove = null;
         this.turnDisplay.textContent = "White's Turn";
         
         // Create squares and pieces
@@ -80,7 +102,7 @@ class ChessGame {
         this.resetButton.parentNode.appendChild(resignButton);
     }
 
-    handleSquareClick(e) {
+    async handleSquareClick(e) {
         if (this.gameOver) return;
         
         const square = e.target.closest('.square');
@@ -101,7 +123,7 @@ class ChessGame {
         }
         // If a piece is selected and clicking on a valid move
         else if (this.selectedPiece && this.isValidMove(row, col)) {
-            this.movePiece(row, col);
+            await this.movePiece(row, col);
             this.selectedPiece = null;
             
             // Check game state after move
@@ -130,7 +152,7 @@ class ChessGame {
             for (let col = 0; col < 8; col++) {
                 const piece = this.gameBoard[row][col];
                 if (piece && piece[0] === opponent[0]) {
-                    const moves = this.calculateValidMoves(row, col, piece);
+                    const moves = this.calculateValidMoves(row, col, piece, false);
                     if (moves.some(move => move.row === kingPos.row && move.col === kingPos.col)) {
                         return true;
                     }
@@ -148,27 +170,8 @@ class ChessGame {
             for (let col = 0; col < 8; col++) {
                 const piece = this.gameBoard[row][col];
                 if (piece && this.isPieceOwner(piece)) {
-                    const moves = this.calculateValidMoves(row, col, piece);
-                    // Try each move
-                    for (const move of moves) {
-                        // Make temporary move
-                        const savedBoard = JSON.parse(JSON.stringify(this.gameBoard));
-                        const savedKings = JSON.parse(JSON.stringify(this.kings));
-                        
-                        this.makeMove(row, col, move.row, move.col);
-                        
-                        // If not in check after move, it's not checkmate
-                        if (!this.isCheck()) {
-                            // Restore board
-                            this.gameBoard = savedBoard;
-                            this.kings = savedKings;
-                            return false;
-                        }
-                        
-                        // Restore board
-                        this.gameBoard = savedBoard;
-                        this.kings = savedKings;
-                    }
+                    const moves = this.calculateValidMoves(row, col, piece, true);
+                    if (moves.length > 0) return false;
                 }
             }
         }
@@ -181,27 +184,109 @@ class ChessGame {
         return occurrences >= 3;
     }
 
-    makeMove(fromRow, fromCol, toRow, toCol) {
+    async makeMove(fromRow, fromCol, toRow, toCol, isSpecialMove = false) {
         const piece = this.gameBoard[fromRow][fromCol];
         
-        // Update kings position if king is moved
+        // Handle castling
+        if (piece[1] === 'K' && Math.abs(toCol - fromCol) === 2) {
+            const isKingside = toCol > fromCol;
+            const rookFromCol = isKingside ? 7 : 0;
+            const rookToCol = isKingside ? 5 : 3;
+            const rookRow = fromRow;
+            
+            // Move rook
+            this.gameBoard[rookRow][rookToCol] = this.gameBoard[rookRow][rookFromCol];
+            this.gameBoard[rookRow][rookFromCol] = null;
+            
+            // Update DOM for rook
+            const rookFromSquare = this.getSquare(rookRow, rookFromCol);
+            const rookToSquare = this.getSquare(rookRow, rookToCol);
+            rookToSquare.innerHTML = rookFromSquare.innerHTML;
+            rookFromSquare.innerHTML = '';
+        }
+        
+        // Handle en passant capture
+        if (piece[1] === 'P' && Math.abs(fromCol - toCol) === 1 && !this.gameBoard[toRow][toCol]) {
+            const capturedPawnRow = fromRow;
+            this.gameBoard[capturedPawnRow][toCol] = null;
+            this.getSquare(capturedPawnRow, toCol).innerHTML = '';
+        }
+        
+        // Update kings position and movement status if king is moved
         if (piece[1] === 'K') {
             this.kings[this.currentPlayer].row = toRow;
             this.kings[this.currentPlayer].col = toCol;
+            this.kings[this.currentPlayer].hasMoved = true;
+        }
+        
+        // Update rook movement status
+        if (piece[1] === 'R') {
+            const side = fromCol === 0 ? 'queenside' : 'kingside';
+            this.rooks[this.currentPlayer][side].hasMoved = true;
+        }
+        
+        // Track pawn moves for en passant
+        if (piece[1] === 'P' && Math.abs(fromRow - toRow) === 2) {
+            this.lastPawnMove = {
+                row: toRow,
+                col: toCol,
+                player: this.currentPlayer
+            };
+        } else {
+            this.lastPawnMove = null;
         }
         
         this.gameBoard[toRow][toCol] = piece;
         this.gameBoard[fromRow][fromCol] = null;
+        
+        // Handle pawn promotion
+        if (piece[1] === 'P' && (toRow === 0 || toRow === 7) && !isSpecialMove) {
+            const promotedPiece = await this.promotePawn(this.currentPlayer);
+            this.gameBoard[toRow][toCol] = promotedPiece;
+            this.getSquare(toRow, toCol).innerHTML = this.getPieceSymbol(promotedPiece);
+        }
     }
 
-    movePiece(toRow, toCol) {
+    async promotePawn(player) {
+        const color = player[0];
+        return new Promise(resolve => {
+            const pieces = ['Q', 'R', 'B', 'N'];
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                background: white;
+                padding: 20px;
+                border: 2px solid black;
+                z-index: 1000;
+            `;
+            
+            pieces.forEach(piece => {
+                const button = document.createElement('button');
+                button.innerHTML = this.getPieceSymbol(`${color}${piece}`);
+                button.style.fontSize = '40px';
+                button.style.margin = '10px';
+                button.onclick = () => {
+                    document.body.removeChild(modal);
+                    resolve(`${color}${piece}`);
+                };
+                modal.appendChild(button);
+            });
+            
+            document.body.appendChild(modal);
+        });
+    }
+
+    async movePiece(toRow, toCol) {
         const { row: fromRow, col: fromCol } = this.selectedPiece;
         
         // Save position for repetition checking
         this.moveHistory.push(JSON.stringify(this.gameBoard));
         
         // Update the board array
-        this.makeMove(fromRow, fromCol, toRow, toCol);
+        await this.makeMove(fromRow, fromCol, toRow, toCol);
         
         // Update the DOM
         const fromSquare = this.getSquare(fromRow, fromCol);
@@ -241,14 +326,14 @@ class ChessGame {
     }
 
     showValidMoves(row, col, piece) {
-        this.validMoves = this.calculateValidMoves(row, col, piece);
+        this.validMoves = this.calculateValidMoves(row, col, piece, true);
         this.validMoves.forEach(move => {
             const square = this.getSquare(move.row, move.col);
             square.classList.add('valid-move');
         });
     }
 
-    calculateValidMoves(row, col, piece) {
+    calculateValidMoves(row, col, piece, checkCastling = true) {
         const moves = [];
         const type = piece[1];
         
@@ -269,7 +354,7 @@ class ChessGame {
                 this.calculateQueenMoves(row, col, moves);
                 break;
             case 'K':
-                this.calculateKingMoves(row, col, moves);
+                this.calculateKingMoves(row, col, moves, checkCastling);
                 break;
         }
         
@@ -277,12 +362,16 @@ class ChessGame {
         return moves.filter(move => {
             const savedBoard = JSON.parse(JSON.stringify(this.gameBoard));
             const savedKings = JSON.parse(JSON.stringify(this.kings));
+            const savedRooks = JSON.parse(JSON.stringify(this.rooks));
+            const savedLastPawnMove = this.lastPawnMove;
             
-            this.makeMove(row, col, move.row, move.col);
+            this.makeMove(row, col, move.row, move.col, true);
             const inCheck = this.isCheck();
             
             this.gameBoard = savedBoard;
             this.kings = savedKings;
+            this.rooks = savedRooks;
+            this.lastPawnMove = savedLastPawnMove;
             
             return !inCheck;
         });
@@ -301,7 +390,7 @@ class ChessGame {
             }
         }
 
-        // Captures
+        // Regular captures
         [-1, 1].forEach(offset => {
             const newCol = col + offset;
             if (this.isValidPosition(row + direction, newCol)) {
@@ -311,6 +400,17 @@ class ChessGame {
                 }
             }
         });
+
+        // En passant
+        if (this.lastPawnMove && 
+            this.lastPawnMove.player !== this.currentPlayer && 
+            row === (this.currentPlayer === 'white' ? 3 : 4)) {
+            [-1, 1].forEach(offset => {
+                if (col + offset === this.lastPawnMove.col) {
+                    moves.push({ row: row + direction, col: this.lastPawnMove.col });
+                }
+            });
+        }
     }
 
     calculateRookMoves(row, col, moves) {
@@ -347,7 +447,7 @@ class ChessGame {
         });
     }
 
-    calculateKingMoves(row, col, moves) {
+    calculateKingMoves(row, col, moves, checkCastling) {
         const kingMoves = [
             [-1, -1], [-1, 0], [-1, 1],
             [0, -1], [0, 1],
@@ -365,6 +465,47 @@ class ChessGame {
                 }
             }
         });
+
+        // Castling
+        if (checkCastling && !this.kings[this.currentPlayer].hasMoved && !this.isCheck()) {
+            // Kingside castling
+            if (!this.rooks[this.currentPlayer].kingside.hasMoved &&
+                !this.gameBoard[row][5] && !this.gameBoard[row][6]) {
+                // Check if squares are under attack
+                let canCastle = true;
+                for (let testCol = 4; testCol <= 6; testCol++) {
+                    const savedBoard = JSON.parse(JSON.stringify(this.gameBoard));
+                    this.gameBoard[row][testCol] = this.gameBoard[row][4];
+                    this.gameBoard[row][4] = null;
+                    if (this.isCheck()) {
+                        canCastle = false;
+                    }
+                    this.gameBoard = savedBoard;
+                }
+                if (canCastle) {
+                    moves.push({ row, col: 6 });
+                }
+            }
+            
+            // Queenside castling
+            if (!this.rooks[this.currentPlayer].queenside.hasMoved &&
+                !this.gameBoard[row][3] && !this.gameBoard[row][2] && !this.gameBoard[row][1]) {
+                // Check if squares are under attack
+                let canCastle = true;
+                for (let testCol = 4; testCol >= 2; testCol--) {
+                    const savedBoard = JSON.parse(JSON.stringify(this.gameBoard));
+                    this.gameBoard[row][testCol] = this.gameBoard[row][4];
+                    this.gameBoard[row][4] = null;
+                    if (this.isCheck()) {
+                        canCastle = false;
+                    }
+                    this.gameBoard = savedBoard;
+                }
+                if (canCastle) {
+                    moves.push({ row, col: 2 });
+                }
+            }
+        }
     }
 
     calculateLinearMoves(row, col, moves, directions) {
